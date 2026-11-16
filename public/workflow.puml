@@ -1,0 +1,32 @@
+@startuml
+skinparam backgroundColor #F8FBFF
+skinparam defaultFontSize 18
+participant "Student / Browser" as Browser
+participant "Nuxt client" as Nuxt
+participant "Nitro routing" as Nitro
+participant "Node service" as Node
+participant "Agent SDK runtime" as Sdk
+participant "Claude API" as Claude
+Browser -> Nuxt : 1. Run prompt
+Nuxt -> Nitro : 2. POST to same-origin API
+Nitro -> Node : 3. Invoke Nitro Node handler
+Node -> Node : 4. Validate bounded JSON input
+Node -> Sdk : 5. Start real SDK runtime
+Sdk -> Claude : 6. Exchange messages with Claude
+loop streamed SDK messages
+Sdk -> Node : 7. Project safe SDK message
+Node -> Nuxt : 8. Flush and pipe SSE bytes
+Nuxt -> Nuxt : 9. Update Vue timeline
+end
+alt complete
+Sdk -> Node : 10. Normalize final SDK result
+Nuxt -> Nuxt : 11. Validate final result event
+Nuxt -> Browser : 12. Render safe colored Markdown
+Node -> Nuxt : 13. Complete result plus done
+else failure
+Node -> Nuxt : 14. Send safe stream failure
+Nuxt -> Browser : 15. Show recoverable error
+else missing key or invalid input
+Node -> Nuxt : 16. Reject missing server key
+end
+@enduml

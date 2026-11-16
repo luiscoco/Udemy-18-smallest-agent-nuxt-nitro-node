@@ -1,0 +1,162 @@
+[
+  {
+    "number": 1,
+    "title": "Run prompt",
+    "source": "app/components/Lab.vue",
+    "line": 16,
+    "language": "javascript",
+    "text": "Trim and lock before asynchronous work.",
+    "explanation": "Vue refs keep prompt, result, mode and timeline while the lab stays mounted across sections. The synchronous running flag blocks duplicate submissions.",
+    "code": "if (running.value || !trimmed.value || trimmed.value.length > 4000) return;\nstate.value = 'running'; error.value = ''; notice.value = ''; result.value = null; partial.value = ''; messages.value = []; elapsed.value = 0;\ncontroller = new AbortController();\nconst started = performance.now();\ntimer = setInterval(() => { elapsed.value = (performance.now() - started) / 1000; }, 100);"
+  },
+  {
+    "number": 2,
+    "title": "POST to same-origin API",
+    "source": "app/lib/api.ts",
+    "line": 57,
+    "language": "typescript",
+    "text": "Send JSON to the relative Nitro endpoint.",
+    "explanation": "Nuxt serves UI and API together. No private model key or separate backend address belongs in the browser.",
+    "code": "const response = await authorizedFetch(apiUrl('/api/agent/stream'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }), signal });\nif (!response.ok) {\n  const data: unknown = await response.json().catch(() => null);\n  throw new Error(detail(data, `The API could not start the stream (HTTP ${response.status}). Check the server and prompt.`));\n}\nif (!response.body) throw new Error('The API returned an empty stream. Please try again.');"
+  },
+  {
+    "number": 3,
+    "title": "Invoke Nitro Node handler",
+    "source": "server/api/agent/stream.post.ts",
+    "line": 1,
+    "language": "typescript",
+    "text": "Route the request to a Node adapter.",
+    "explanation": "Nitro file routing invokes a real H3 handler. The Node preset supports SDK subprocesses and awaited streaming response pipelines.",
+    "code": "import {defineEventHandler} from 'h3';\nimport {handleAgent} from '../../lib/node-adapter';\nexport default defineEventHandler(event=>handleAgent(event,'stream'));"
+  },
+  {
+    "number": 4,
+    "title": "Validate bounded JSON input",
+    "source": "server/lib/handlers.ts",
+    "line": 29,
+    "language": "typescript",
+    "text": "Check origin, media type and prompt.",
+    "explanation": "The adapter bounds actual raw bytes before buffering; the shared handler enforces JSON and a trimmed 1–4000 character string. Forwarded TLS is trusted only with explicit proxy configuration.",
+    "code": "async function readPrompt(request: Request, config: AgentConfig): Promise<string> {\n  const origin = request.headers.get(\"origin\");\n  if (origin) {\n    const url = new URL(request.url);\n    // Host preserves localhost versus 127.0.0.1; forwarded headers are not trusted.\n    const host = request.headers.get(\"host\") || url.host;\n    const protocol = config.trustProxy && request.headers.get(\"x-forwarded-proto\") === \"https\" ? \"https:\" : url.protocol;\n    if (origin !== `${protocol}//${host}`)\n      throw new InputError(403, \"Origin is not allowed.\");\n  }\n  if ((request.headers.get(\"content-type\") || '').split(\";\")[0]?.trim().toLowerCase() !== \"application/json\")\n    throw new InputError(415, \"Use Content-Type: application/json.\");\n  const reader = request.body?.getReader();\n  if (!reader)\n    throw new InputError(\n      422,\n      \"Prompt must contain 1–4000 characters after trimming.\",\n    );"
+  },
+  {
+    "number": 5,
+    "title": "Start real SDK runtime",
+    "source": "server/lib/agent-service.ts",
+    "line": 68,
+    "language": "typescript",
+    "text": "Call the official query async iterator.",
+    "explanation": "Each run owns temporary work/home/config directories. Tools, settings, skills, MCP, plugins and persisted sessions are disabled. The production output explicitly packages the platform-native CLI.",
+    "code": "const conversation = queryFn({\n  prompt,\n  options: agentOptions(config, controller),\n});\ntry {\n  for await (const message of conversation) {"
+  },
+  {
+    "number": 6,
+    "title": "Exchange messages with Claude",
+    "source": "server/lib/agent-service.ts",
+    "line": 73,
+    "language": "typescript",
+    "text": "Consume SDK messages asynchronously.",
+    "explanation": "The CLI-backed SDK owns model HTTPS transport. This excerpt shows the actual application boundary, not invented provider HTTP code.",
+    "code": "for await (const message of conversation) {\n  if (message.type === \"result\") return resultData(message);\n}\nthrow new Error(\"Agent ended without a result\");"
+  },
+  {
+    "number": 7,
+    "title": "Project safe SDK message",
+    "source": "server/lib/agent-service.ts",
+    "line": 128,
+    "language": "typescript",
+    "text": "Select public text and lifecycle fields.",
+    "explanation": "Thinking, session IDs, private paths and tool payloads are not exposed. Exact configured-key occurrences are redacted. These are SDK messages rather than token deltas.",
+    "code": "    yield { type, summary, data };\n  }\n  if (!foundResult) throw new Error(\"Agent ended without a result\");\n} finally {"
+  },
+  {
+    "number": 8,
+    "title": "Flush and pipe SSE bytes",
+    "source": "server/lib/node-adapter.ts",
+    "line": 33,
+    "language": "typescript",
+    "text": "Flush headers and await the response pipeline.",
+    "explanation": "Node pipeline handles backpressure. Response close aborts owned execution; request-body completion alone does not cancel inference. Heartbeats and application deadlines have separate purposes.",
+    "code": "res.writeHead(response.status,Object.fromEntries(response.headers));res.flushHeaders();\nif(response.body)await pipeline(Readable.fromWeb(response.body as never),res);else res.end();"
+  },
+  {
+    "number": 9,
+    "title": "Update Vue timeline",
+    "source": "app/components/Lab.vue",
+    "line": 25,
+    "language": "javascript",
+    "text": "Append safe timestamped messages.",
+    "explanation": "The 500-row visible history cap does not stop final-result processing. Assistant text can appear before the final result.",
+    "code": "if (messages.value.length < 500) messages.value.push({ ...message, elapsed: (performance.now() - started) / 1000 });\nif (message.type === 'ResultMessage' && isAgentResult(message.data)) result.value = message.data;"
+  },
+  {
+    "number": 10,
+    "title": "Normalize final SDK result",
+    "source": "server/lib/agent-service.ts",
+    "line": 52,
+    "language": "typescript",
+    "text": "Preserve answer, turns, duration, cost and error.",
+    "explanation": "Unreported cost remains null. A non-success SDK subtype remains an error even if the raw flag is false.",
+    "code": "function resultData(message: SDKResultMessage): AgentResult {\n  return {\n    result:\n      message.subtype === \"success\"\n        ? redact(message.result || \"\")\n        : \"The agent could not complete this prompt. Check the server configuration.\",\n    num_turns: message.num_turns,\n    duration_ms: message.duration_ms,\n    total_cost_usd: message.total_cost_usd ?? null,\n    is_error: message.subtype !== \"success\" || Boolean(message.is_error),\n  };\n}\nasync function runAgent("
+  },
+  {
+    "number": 11,
+    "title": "Validate final result event",
+    "source": "app/lib/api.ts",
+    "line": 67,
+    "language": "typescript",
+    "text": "Require a typed result and completion event.",
+    "explanation": "Malformed or truncated streams fail safely rather than displaying unfinished execution as success.",
+    "code": "  if (event === 'message') { const message = messageFrom(data); if (message.type === 'ResultMessage') finalReceived = true; onMessage(message); }\n});\nif (!completed || !finalReceived) throw new Error('The connection ended before the agent finished. Please try again.');"
+  },
+  {
+    "number": 12,
+    "title": "Render safe colored Markdown",
+    "source": "app/lib/code.ts",
+    "line": 24,
+    "language": "typescript",
+    "text": "Sanitize generated Markdown HTML.",
+    "explanation": "Highlight.js colors fenced code, including Vue/XML and TypeScript. DOMPurify removes active markup before v-html. Unknown languages remain escaped text.",
+    "code": "export function renderMarkdown(text: string): string {\n  if (typeof DOMPurify.sanitize !== 'function') return '';\n  return DOMPurify.sanitize(markdown.parse(text, { async: false }));\n}"
+  },
+  {
+    "number": 13,
+    "title": "Complete result plus done",
+    "source": "server/lib/handlers.ts",
+    "line": 180,
+    "language": "typescript",
+    "text": "Send done after a completed SDK iterator.",
+    "explanation": "The service requires a final SDK result. Transport completion does not override its error state.",
+    "code": "  sendEvent(\"done\", { status: \"complete\" });\n} catch {\n  sendEvent(\"error\", { detail: FAILURE });"
+  },
+  {
+    "number": 14,
+    "title": "Send safe stream failure",
+    "source": "server/lib/handlers.ts",
+    "line": 182,
+    "language": "typescript",
+    "text": "Emit a generic failure without done.",
+    "explanation": "Raw provider diagnostics stay private. The 180-second application deadline aborts owned SDK work and clears stream timers.",
+    "code": "  sendEvent(\"error\", { detail: FAILURE });\n} finally {\n  finish();"
+  },
+  {
+    "number": 15,
+    "title": "Show recoverable error",
+    "source": "app/components/Lab.vue",
+    "line": 31,
+    "language": "javascript",
+    "text": "Show safe feedback and release controls.",
+    "explanation": "Cancel aborts fetch. Finally clears the elapsed timer. Lesson navigation remains available for recovery.",
+    "code": "} catch (failure) {\n  if (failure.name === 'AbortError') return;\n  state.value = 'error'; error.value = failure.message || 'The agent could not finish.'; notice.value = error.value;\n} finally { clearInterval(timer); elapsed.value = (performance.now() - started) / 1000; }"
+  },
+  {
+    "number": 16,
+    "title": "Reject missing server key",
+    "source": "server/lib/handlers.ts",
+    "line": 156,
+    "language": "typescript",
+    "text": "Stop before SDK execution.",
+    "explanation": "Nuxt dev loads .env; the local production launcher explicitly loads it. Hosted Node reads injected server variables. Missing key returns query 503 or stream error without done.",
+    "code": "if (!config.apiKeyConfigured) {\n  sendEvent(\"error\", { detail: MISSING_KEY });\n  finish();\n  return;"
+  }
+]

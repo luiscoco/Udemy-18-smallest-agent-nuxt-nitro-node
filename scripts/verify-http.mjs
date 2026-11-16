@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+const base=process.env.VERIFY_BASE_URL||'http://127.0.0.1:5900';
+const health=await(await fetch(base+'/api/health')).json();assert.deepEqual(health,{status:'ok',api_key_configured:false},'Use a placeholder key for verification.');
+const post=(body,headers={})=>fetch(base+'/api/agent/query',{method:'POST',headers:{'Content-Type':'application/json',...headers},body:JSON.stringify(body)});
+for(const body of [{},{prompt:''},{prompt:'  '},{prompt:42},{prompt:'x'.repeat(4001)}])assert.equal((await post(body)).status,422);
+assert.equal((await post({prompt:'x'.repeat(40000)})).status,413);
+assert.equal((await post({prompt:'hello'},{Origin:'https://foreign.invalid'})).status,403);
+assert.equal((await post({prompt:'hello'})).status,503);
+const stream=await fetch(base+'/api/agent/stream',{method:'POST',headers:{'Content-Type':'application/json',Origin:base},body:JSON.stringify({prompt:'hello'})});
+assert.equal(stream.status,200);assert.match(stream.headers.get('content-type'),/text\/event-stream/);const events=await stream.text();assert.match(events,/event: error/);assert.doesNotMatch(events,/event: done/);
+assert.equal((await fetch(base+'/docs')).status,200);assert.ok((await(await fetch(base+'/openapi.json')).json()).paths['/api/agent/stream']);
+assert.equal((await fetch(base+'/api/unknown')).status,404);assert.equal((await fetch(base+'/%2eenv')).status,404);
+const root=await fetch(base+'/');assert.equal(root.status,200);const html=await root.text();assert.match(html,/The Smallest Agent/);assert.match(html,/Nitro/);
+const asset=html.match(/src="([^"]+\.(?:m?js)[^"]*)"/);assert.ok(asset);assert.equal((await fetch(base+asset[1])).status,200);
+assert.match(await(await fetch(base+'/workflow.svg')).text(),/Node service/);
+console.log('Compiled Nuxt assets, API docs, input boundaries, missing-key query/SSE and static/API routing passed without inference.');
